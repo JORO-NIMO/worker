@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+import sys
+import os
+import argparse
+import json
+
+# Add worker root to sys.path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
+
+from core.database import init_db, create_task, get_dashboard_data, get_next_pending_task
+from core.agent_brain import AgentBrain
+from tools.security_auditor import SecurityAuditor
+from tools.system_scaler import SystemScaler
+from tools.credential_guard import CredentialGuard
+from tools.ssh_manager import list_authorized_keys, authorize_ssh_key, revoke_ssh_key, sync_to_authorized_keys_file
+
+def main():
+    parser = argparse.ArgumentParser(description="Worker Control CLI (workerctl)")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
+
+    # Status
+    subparsers.add_parser("status", help="Show worker daemon and database status")
+
+    # Add Task
+    add_parser = subparsers.add_parser("add-task", help="Enqueue a new autonomous task")
+    add_parser.add_argument("--title", required=True, help="Task title")
+    add_parser.add_argument("--type", choices=["code", "security_audit", "database", "scale", "general"], default="general")
+    add_parser.add_argument("--prompt", required=True, help="Instructions for the agent")
+    add_parser.add_argument("--context", default="", help="Context or target path")
+    add_parser.add_argument("--priority", type=int, default=10, help="Priority (lower = higher priority)")
+
+    # Run Single Task
+    subparsers.add_parser("run-once", help="Process one pending task immediately")
+
+    # Audit
+    audit_parser = subparsers.add_parser("audit", help="Run a security audit directly")
+    audit_parser.add_argument("path", help="Path to project or directory")
+
+    # Credential Guard
+    guard_parser = subparsers.add_parser("guard", help="Scan repository for hardcoded secrets or sensitive files")
+    guard_parser.add_argument("--target", default="staged", choices=["staged", "all", "dir"], help="Scan staged git files or full tree")
+    guard_parser.add_argument("--path", default=None, help="Directory path when target=dir")
+
+    # Install Git Hooks
+    subparsers.add_parser("install-hooks", help="Install pre-commit and pre-push hooks to disallow pushing credentials")
+
+    # SSH Key Management
+    ssh_parser = subparsers.add_parser("ssh", help="Manage authorized SSH keys")
+    ssh_sub = ssh_parser.add_subparsers(dest="ssh_action")
+    ssh_sub.add_parser("list", help="List all authorized SSH keys")
+    auth_sub = ssh_sub.add_parser("authorize", help="Authorize a new public key")
+    auth_sub.add_argument("--user", required=True, help="Username")
+    auth_sub.add_argument("--key", required=True, help="Public key string")
+    auth_sub.add_argument("--comment", default="", help="Optional label or comment")
+    auth_sub.add_argument("--days", type=int, default=30, help="Expiration in days")
+    rev_sub = ssh_sub.add_parser("revoke", help="Revoke an authorized SSH key")
+    rev_sub.add_argument("id_or_fp", help="Key ID or SHA256 fingerprint")
+    ssh_sub.add_parser("sync", help="Synchronize active keys to ~/.ssh/authorized_keys")
+
+    # Test Models
+    subparsers.add_parser("test-models", help="Verify Ollama connection and installed models")
+
+    args = parser.parse_args()
+
+    init_db()
+
+    if args.command == "status":
+        data = get_dashboard_data()
+        print("=== Autonomous Worker Status ===", flush=True)
+        print(f"Pending Tasks:   {data['stats']['pending_tasks']}", flush=True)
+        print(f"Running Tasks:   {data['stats']['running_tasks']}", flush=True)
+        print(f"Completed Tasks: {data['stats']['completed_tasks']}", flush=True)
+        print(f"Failed Tasks:    {data['stats']['failed_tasks']}", flush=True)
+        print(f"Open Vulns:      {data['stats']['open_vulns']}", flush=True)
+        print("\n=== Recent Tasks ===", flush=True)
+        for t in data["recent_tasks"][:5]:
+            print(f"[{t['status'].upper()}] #{t['id']} {t['title']} ({t['type']})", flush=True)
+
+    elif args.command == "add-task":
+        task_id = create_task(args.title, args.type, args.prompt, args.context, args.priority)
+        print(f"[OK] Task #{task_id} enqueued successfully.", flush=True)
+
+    elif args.command == "run-once":
+        task = get_next_pending_task()
+        if not task:
+            print("[INFO] No pending tasks in queue.", flush=True)
+            return
+        print(f"Executing Task #{task['id']}: {task['title']}...", flush=True)
+        brain = AgentBrain()
+        res = brain.process_task(task)
+        print(f"[Status: {res['status'].upper()}] Model: {res['model_used']}", flush=True)
+        print("\n--- Thought Process ---", flush=True)
+        print(res["thought"][:500] + ("..." if len(res["thought"]) > 500 else ""), flush=True)
+        print("\n--- Result ---", flush=True)
+        print(res["result"][:500], flush=True)
+
+    elif args.command == "audit":
+        auditor = SecurityAuditor()
+        findings = auditor.scan_project(os.path.basename(args.path), args.path)
+        print(f"[Audit] Discovered {len(findings)} findings in {args.path}:", flush=True)
+        for f in findings[:10]:
+            print(f"- [{f['severity']}] {f['type']} at {f['file']}:{f['line']}", flush=True)
+
+    elif args.command == "guard":
+        guard = CredentialGuard(BASE_DIR)
+        if args.target == "staged":
+            findings = guard.scan_staged_git()
+        elif args.target == "all":
+            findings = guard.scan_directory()
+        else:
+            findings = guard.scan_directory(args.path or BASE_DIR)
+        if findings:
+            print(f"\033[91m[CREDENTIAL ALERT] Found {len(findings)} exposed secrets / restricted files!\033[0m")
+            for f in findings:
+                print(f" - [{f['severity']}] {f['rule']} in {f['file']}:{f.get('line', '-')}")
+            sys.exit(1)
+        else:
+            print("\033[92m[OK] No exposed secrets found. Repository safe.\033[0m")
+
+    elif args.command == "install-hooks":
+        hooks_dir = os.path.join(BASE_DIR, ".git", "hooks")
+        os.makedirs(hooks_dir, exist_ok=True)
+        githooks_src = os.path.join(BASE_DIR, ".githooks")
+        for hook_name in ["pre-commit", "pre-push"]:
+            src = os.path.join(githooks_src, hook_name)
+            dst = os.path.join(hooks_dir, hook_name)
+            if os.path.exists(src):
+                with open(src, "r") as sf, open(dst, "w") as df:
+                    df.write(sf.read())
+                os.chmod(dst, 0o755)
+                print(f"[OK] Installed git hook: {dst}")
+
+    elif args.command == "ssh":
+        if args.ssh_action == "list":
+            keys = list_authorized_keys()
+            print("=== Authorized SSH Keys ===")
+            for k in keys:
+                print(f"#{k['id']} [{k['status'].upper()}] {k['username']} - {k['fingerprint']} ({k['comment']}) Exp: {k['expires_at'] or 'Never'}")
+        elif args.ssh_action == "authorize":
+            res = authorize_ssh_key(args.user, args.key, comment=args.comment, expires_days=args.days)
+            print(f"[OK] Authorized key {res['fingerprint']} for {args.user}. Expires: {res['expires_at']}")
+        elif args.ssh_action == "revoke":
+            revoke_ssh_key(args.id_or_fp)
+            print(f"[OK] Revoked SSH key {args.id_or_fp}")
+        elif args.ssh_action == "sync":
+            sync_to_authorized_keys_file()
+            print("[OK] Synchronized keys to ~/.ssh/authorized_keys")
+
+    elif args.command == "test-models":
+        scaler = SystemScaler()
+        metrics = scaler.collect_metrics()
+        tier, rec_model = scaler.recommend_model_tier()
+        print(f"System RAM: {metrics['ram_used_mb']}MB used / {metrics['ram_total_mb']}MB total ({metrics['ram_avail_mb']}MB available)", flush=True)
+        print(f"Safe Tier Recommendation: {tier.upper()} -> Model: {rec_model}", flush=True)
+
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

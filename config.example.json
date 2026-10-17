@@ -1,0 +1,25 @@
+{
+  "ollama_url": "http://127.0.0.1:11434",
+  "models": {
+    "thinker": "qwen2.5-coder:1.5b",
+    "coder": "qwen2.5-coder:1.5b",
+    "fast_coder": "llama3.2:1b",
+    "sentinel": "llama3.2:1b",
+    "deep_thinker": "deepseek-r1:7b"
+  },
+  "database_path": "/var/www/worker/data/worker.db",
+  "log_path": "/var/www/worker/logs/worker.log",
+  "dashboard_port": 8888,
+  "poll_interval_sec": 10,
+  "max_retries": 3,
+  "security": {
+    "enforce_ip_whitelist": true
+  },
+  "monitored_projects": [
+    {
+      "name": "example_service",
+      "path": "/var/www/example",
+      "type": "python_web"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=Autonomous Agent & Continuous Worker Service
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=ishabarundo
+Group=ishabarundo
+WorkingDirectory=/var/www/worker
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=/var/www/worker"
+Environment="WORKER_CONFIG_PATH=/var/www/worker/config.json"
+Environment="WORKER_DB_PATH=/var/www/worker/data/worker.db"
+ExecStart=/usr/bin/python3 -m core.worker_daemon
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/www/worker/logs/worker.log
+StandardError=append:/var/www/worker/logs/worker.log
+
+[Install]
+WantedBy=multi-user.target

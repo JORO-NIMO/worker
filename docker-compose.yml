@@ -1,0 +1,19 @@
+services:
+  worker-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: worker-agent
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - WORKER_CONFIG_PATH=/var/www/worker/config.json
+      - WORKER_DB_PATH=/var/www/worker/data/worker.db
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    volumes:
+      - ./data:/var/www/worker/data
+      - ./logs:/var/www/worker/logs
+      - ./config.json:/var/www/worker/config.json:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
