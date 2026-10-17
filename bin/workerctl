@@ -4,8 +4,11 @@ import os
 import argparse
 import json
 
-# Add worker root to sys.path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Add worker root to sys.path (resolving symlinks)
+real_path = os.path.realpath(__file__)
+BASE_DIR = os.path.dirname(os.path.dirname(real_path))
+if not os.path.exists(os.path.join(BASE_DIR, "core", "database.py")):
+    BASE_DIR = "/var/www/worker"
 sys.path.insert(0, BASE_DIR)
 
 from core.database import init_db, create_task, get_dashboard_data, get_next_pending_task
@@ -57,6 +60,9 @@ def main():
     rev_sub = ssh_sub.add_parser("revoke", help="Revoke an authorized SSH key")
     rev_sub.add_argument("id_or_fp", help="Key ID or SHA256 fingerprint")
     ssh_sub.add_parser("sync", help="Synchronize active keys to ~/.ssh/authorized_keys")
+
+    # Learn
+    subparsers.add_parser("learn", help="Scan and learn from all server projects and infrastructure")
 
     # Test Models
     subparsers.add_parser("test-models", help="Verify Ollama connection and installed models")
@@ -146,6 +152,18 @@ def main():
         elif args.ssh_action == "sync":
             sync_to_authorized_keys_file()
             print("[OK] Synchronized keys to ~/.ssh/authorized_keys")
+
+    elif args.command == "learn":
+        from tools.project_learner import ProjectLearner
+        learner = ProjectLearner()
+        print("=== Scanning and Learning from Server Projects ===")
+        res = learner.learn_all()
+        print(f"Ingested {len(res['projects'])} projects.")
+        for p in res["projects"]:
+            if "project" in p:
+                print(f"  ✓ {p['project']}: {p['routes_count']} routes, {p['schemas_count']} models")
+        print(f"  ✓ Cloudflare Tunnels: {len(res['cloudflare']['tunnels'])}")
+        print(f"  ✓ Docker Containers: {len(res['docker']['containers'])}")
 
     elif args.command == "test-models":
         scaler = SystemScaler()
