@@ -245,6 +245,10 @@ class AutonomousDashboardHandler(http.server.BaseHTTPRequestHandler):
         session = validate_session(token) if token else None
         return is_ip_ok, client_ip, session
 
+    def do_HEAD(self):
+        # Handle HEAD requests cleanly (needed for Cloudflare and monitoring health checks)
+        self.do_GET()
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
