@@ -32,15 +32,24 @@ class WorkerDaemon:
     def trigger_periodic_maintenance(self):
         """
         Autonomous proactive continuous improvement:
-        Ensures the system continuously checks for security issues, scales gracefully,
-        and self-improves local models.
+        Ensures the system continuously inspects server codebases, monitors docker & tunnels,
+        checks for security issues, scales gracefully, and self-improves local models.
         """
         now = time.time()
         if now - self.last_auto_maintenance > self.auto_maintenance_interval:
             self.last_auto_maintenance = now
-            log_event("AUTO_CYCLE", "Triggering autonomous maintenance cycle")
+            log_event("AUTO_CYCLE", "Triggering autonomous maintenance and learning cycle")
             
-            # 1. Enqueue proactive security audit
+            # 1. Enqueue autonomous server discovery & learning
+            create_task(
+                title="Autonomous Server Project Discovery & Ingestion",
+                task_type="learn_server",
+                prompt="Scan all server codebases, routes, models, containers, and tunnels to keep knowledge base fresh.",
+                context="/var/www",
+                priority=10
+            )
+
+            # 2. Enqueue proactive security audit
             create_task(
                 title="Proactive Security Audit - SignLanguage",
                 task_type="security_audit",
@@ -49,7 +58,7 @@ class WorkerDaemon:
                 priority=20
             )
 
-            # 2. Enqueue autonomous model self-improvement cycle
+            # 3. Enqueue autonomous model self-improvement cycle
             create_task(
                 title="Autonomous Model Self-Improvement & Coding Reflexion",
                 task_type="self_improve",
@@ -58,7 +67,7 @@ class WorkerDaemon:
                 priority=30
             )
 
-            # 3. Enqueue system scale check
+            # 4. Enqueue system scale check
             create_task(
                 title="System Resource & Scale Inspection",
                 task_type="scale",

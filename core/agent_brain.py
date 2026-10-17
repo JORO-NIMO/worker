@@ -8,6 +8,7 @@ from tools.code_engine import CodeEngine
 from tools.db_manager import DatabaseManager
 from tools.security_auditor import SecurityAuditor
 from tools.system_scaler import SystemScaler
+from tools.project_learner import ProjectLearner
 from core.model_self_improvement import ModelSelfImprovementEngine
 
 class AgentBrain:
@@ -17,6 +18,7 @@ class AgentBrain:
         self.db_manager = DatabaseManager()
         self.auditor = SecurityAuditor(llm_router=self.router)
         self.scaler = SystemScaler()
+        self.learner = ProjectLearner()
         self.self_improver = ModelSelfImprovementEngine(llm_router=self.router)
 
     def process_task(self, task):
@@ -33,10 +35,14 @@ class AgentBrain:
         if tier == "low":
             self.scaler.unload_idle_models()
 
-        # 2. Thinking phase with DeepSeek reasoning
+        # 2. Knowledge-Augmented Thinking
+        learned_ctx = self.learner.query_project_knowledge(f"{title} {prompt} {context}")
+        augmented_context = f"{context}\n\n[Learned Server Knowledge]:\n{learned_ctx}" if learned_ctx else context
+
+        # Thinking phase with DeepSeek reasoning
         thought_data = self.router.think_and_plan(
             task_description=f"Task: {title}\nInstructions: {prompt}",
-            context=context
+            context=augmented_context
         )
         thought_process = thought_data["thought"]
         plan = thought_data["plan"]
@@ -49,7 +55,16 @@ class AgentBrain:
         error_msg = None
 
         try:
-            if task_type == "self_improve":
+            if task_type in ("learn", "learn_server", "knowledge"):
+                res = self.learner.learn_all()
+                execution_result = (
+                    f"Server Knowledge Learning Cycle Completed:\n"
+                    f"- Ingested {len(res['projects'])} projects\n"
+                    f"- Monitored {len(res['docker']['containers'])} Docker containers\n"
+                    f"- Verified {len(res['cloudflare']['tunnels'])} Cloudflare ingress tunnels"
+                )
+
+            elif task_type == "self_improve":
                 # Execute full self-improvement cycle on local models
                 target_model = context.strip() if context else None
                 cycle_res = self.self_improver.run_self_improvement_cycle(model_name=target_model)
@@ -81,7 +96,7 @@ class AgentBrain:
                 )
 
             elif task_type == "code":
-                code_res = self.router.generate_code(instruction=prompt, current_code=context)
+                code_res = self.router.generate_code(instruction=prompt, current_code=augmented_context)
                 generated_code = code_res["code"]
                 execution_result = f"Code generated using {code_res['model']}:\n\n{generated_code}"
 

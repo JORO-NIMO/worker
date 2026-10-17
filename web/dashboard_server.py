@@ -302,6 +302,12 @@ class AutonomousDashboardHandler(http.server.BaseHTTPRequestHandler):
             improvements = get_self_improvements()
             return self.send_json({"benchmarks": history, "improvements": improvements})
 
+        if path == "/api/knowledge":
+            from tools.project_learner import ProjectLearner
+            learner = ProjectLearner()
+            knowledge = learner.get_all_knowledge()
+            return self.send_json({"knowledge": knowledge, "count": len(knowledge)})
+
         if path == "/api/db/tables":
             tables = list_tables()
             return self.send_json({"tables": tables})
@@ -407,6 +413,12 @@ class AutonomousDashboardHandler(http.server.BaseHTTPRequestHandler):
             model = body.get("model") or "qwen2.5-coder:1.5b"
             engine = ModelSelfImprovementEngine()
             result = engine.run_benchmark(model_name=model)
+            return self.send_json({"status": "success", "result": result})
+
+        if path == "/api/learn":
+            from tools.project_learner import ProjectLearner
+            learner = ProjectLearner()
+            result = learner.learn_all()
             return self.send_json({"status": "success", "result": result})
 
         if path == "/api/security/add-ip":

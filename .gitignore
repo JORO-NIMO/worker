@@ -43,3 +43,5 @@ env/
 
 # Node modules
 node_modules/
+data/*
+!data/.gitkeep
